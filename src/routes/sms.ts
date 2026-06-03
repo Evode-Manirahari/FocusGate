@@ -11,6 +11,7 @@ import {
   type Student,
 } from "../store.js";
 import { sendToStudent, autoReplyTwiml, emptyTwiml, isValidTwilioRequest } from "../twilio.js";
+import { pushUrgentToStudent } from "../push.js";
 
 export const smsRouter = Router();
 
@@ -52,7 +53,14 @@ smsRouter.post("/inbound", async (req, res) => {
 
   if (decision.urgent) {
     logMessage({ studentId: student.id, from, body, receivedAt: Date.now(), duringBlock: true, triage: decision, outcome: "pushed-urgent" });
-    await safeForward(student, `🔴 URGENT work msg from ${from}: ${body}`);
+    // Prefer the native app's Time Sensitive push (breaks through Focus); fall back to
+    // SMS if the student hasn't installed/registered the app yet.
+    const pushed = await pushUrgentToStudent(student, {
+      title: "Urgent work message",
+      body: `${from}: ${body}`,
+      data: { from, reason: decision.reason },
+    });
+    if (!pushed) await safeForward(student, `🔴 URGENT work msg from ${from}: ${body}`);
     res.send(emptyTwiml());
     return;
   }

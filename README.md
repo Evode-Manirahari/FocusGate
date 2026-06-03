@@ -18,8 +18,13 @@ them with Claude, and only the urgent ones reach the student. Because the logic 
 the server, the same backend works on iOS and Android — no notification interception, which
 iOS forbids anyway.
 
-This repo is the **v1 relay backend**, scoped for the concierge test (see below) and the
-real Approach C build at the same time.
+This repo is the **v1 relay backend** plus a thin native client. The backend is scoped
+for the concierge test (see below) and the real Approach C build at the same time.
+
+- **Backend** (this directory) — Twilio relay + Claude triage + study blocks + dashboard.
+- **Native app** ([`app/`](./app)) — Expo client that receives the urgent message as an
+  iOS **Time Sensitive** push that breaks through Focus mode (the one thing web push and
+  the OS won't do). The backend falls back to SMS when the app isn't connected.
 
 ## How a message flows
 
