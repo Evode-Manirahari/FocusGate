@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { hasUrgentKeyword, parseDecision } from "../src/triage.js";
+import { pushUrgentToStudent } from "../src/push.js";
 import {
   createStudent,
   getStudentByFocusgateNumber,
@@ -40,6 +41,13 @@ describe("parseDecision — tolerant JSON extraction (fail-open relies on null)"
     expect(parseDecision("no json here")).toBeNull();
     expect(parseDecision('{"urgent": "yes"}')).toBeNull();
     expect(parseDecision("{broken")).toBeNull();
+  });
+});
+
+describe("pushUrgentToStudent — SMS fallback gate", () => {
+  it("returns false without a push token (caller falls back to SMS), no network call", async () => {
+    const student = { id: 1, name: "Alex", phone: "+1500", focusgateNumber: "+1900", expoPushToken: null };
+    await expect(pushUrgentToStudent(student, { title: "t", body: "b" })).resolves.toBe(false);
   });
 });
 
