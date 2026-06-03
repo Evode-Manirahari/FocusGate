@@ -1,5 +1,6 @@
 import twilio from "twilio";
 import { config } from "./config.js";
+import type { Student } from "./store.js";
 
 let rest: ReturnType<typeof twilio> | null = null;
 function client() {
@@ -9,24 +10,24 @@ function client() {
 }
 
 /**
- * Forward a message to the student's real phone. In Approach C this stands in for
- * the Time Sensitive push that breaks through Focus mode; for the SMS-relay concierge
- * test, a plain SMS (or a call) to the student is enough to validate the loop.
+ * Forward a message to the student's real phone, sent from their FocusGate number.
+ * In Approach C this stands in for the Time Sensitive push that breaks through Focus
+ * mode; for the SMS-relay concierge test, a plain SMS to the student validates the loop.
  */
-export async function sendToStudent(text: string): Promise<void> {
+export async function sendToStudent(student: Student, text: string): Promise<void> {
   const c = client();
-  if (!c || !config.studentPhone || !config.focusgateNumber) {
-    console.warn(`[twilio] (dry-run) -> student: ${text}`);
+  if (!c || !student.phone || !student.focusgateNumber) {
+    console.warn(`[twilio] (dry-run) -> ${student.name}: ${text}`);
     return;
   }
-  await c.messages.create({ from: config.focusgateNumber, to: config.studentPhone, body: text });
+  await c.messages.create({ from: student.focusgateNumber, to: student.phone, body: text });
 }
 
 /** Build the TwiML auto-reply sent back to a non-urgent sender. */
-export function autoReplyTwiml(untilLabel: string): string {
+export function autoReplyTwiml(studentName: string, untilLabel: string): string {
   const response = new twilio.twiml.MessagingResponse();
   response.message(
-    `${config.studentName} is in a focus block until ${untilLabel}. ` +
+    `${studentName} is in a focus block until ${untilLabel}. ` +
       `Your message was saved and they'll see it then. Reply with the word URGENT if it can't wait.`,
   );
   return response.toString();

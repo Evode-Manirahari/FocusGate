@@ -2,26 +2,27 @@ import { Router } from "express";
 import { config } from "../config.js";
 import { triage } from "../triage.js";
 import {
+  getStudentByFocusgateNumber,
   getActiveBlock,
   blockEndLabel,
   logMessage,
   alreadyAutoReplied,
   markAutoReplied,
+  type Student,
 } from "../store.js";
 import { sendToStudent, autoReplyTwiml, emptyTwiml, isValidTwilioRequest } from "../twilio.js";
+import { pushUrgentToStudent } from "../push.js";
 
 export const smsRouter = Router();
 
 /**
- * Twilio inbound-SMS webhook. A work contact texts the FocusGate number; this decides
- * whether the message breaks through the student's study block.
- *
- * Block state machine:
- *   - inactive block -> pass straight through (forward to student, no triage)
- *   - active block   -> triage; urgent -> forward now; non-urgent -> hold + auto-reply once per sender
+ * Twilio inbound-SMS webhook. A work contact texts a student's FocusGate number;
+ * the `To` field tells us which student. This decides whether the message breaks
+ * through that student's study block.
  */
 smsRouter.post("/inbound", async (req, res) => {
   const from = String(req.body.From ?? "");
+  const to = String(req.body.To ?? "");
   const body = String(req.body.Body ?? "");
 
   const fullUrl = `${config.publicBaseUrl || `${req.protocol}://${req.get("host")}`}${req.originalUrl}`;
@@ -30,13 +31,20 @@ smsRouter.post("/inbound", async (req, res) => {
     return;
   }
 
+  const student = getStudentByFocusgateNumber(to);
   res.type("text/xml");
-  const block = getActiveBlock();
+  if (!student) {
+    // Unknown FocusGate number — not ours to handle.
+    res.send(emptyTwiml());
+    return;
+  }
+
+  const block = getActiveBlock(student.id);
 
   // No active study block — deliver normally, no filtering.
   if (!block) {
-    logMessage({ from, body, receivedAt: Date.now(), duringBlock: false, outcome: "passed-through" });
-    await safeForward(`[work] ${from}: ${body}`);
+    logMessage({ studentId: student.id, from, body, receivedAt: Date.now(), duringBlock: false, outcome: "passed-through" });
+    await safeForward(student, `[work] ${from}: ${body}`);
     res.send(emptyTwiml());
     return;
   }
@@ -44,27 +52,33 @@ smsRouter.post("/inbound", async (req, res) => {
   const decision = await triage(body);
 
   if (decision.urgent) {
-    logMessage({ from, body, receivedAt: Date.now(), duringBlock: true, triage: decision, outcome: "pushed-urgent" });
-    await safeForward(`🔴 URGENT work msg from ${from}: ${body}`);
+    logMessage({ studentId: student.id, from, body, receivedAt: Date.now(), duringBlock: true, triage: decision, outcome: "pushed-urgent" });
+    // Prefer the native app's Time Sensitive push (breaks through Focus); fall back to
+    // SMS if the student hasn't installed/registered the app yet.
+    const pushed = await pushUrgentToStudent(student, {
+      title: "Urgent work message",
+      body: `${from}: ${body}`,
+      data: { from, reason: decision.reason },
+    });
+    if (!pushed) await safeForward(student, `🔴 URGENT work msg from ${from}: ${body}`);
     res.send(emptyTwiml());
     return;
   }
 
   // Non-urgent: hold it, and auto-reply once per sender per block.
-  logMessage({ from, body, receivedAt: Date.now(), duringBlock: true, triage: decision, outcome: "held" });
-  if (alreadyAutoReplied(from)) {
+  logMessage({ studentId: student.id, from, body, receivedAt: Date.now(), duringBlock: true, triage: decision, outcome: "held" });
+  if (alreadyAutoReplied(block.id, from)) {
     res.send(emptyTwiml());
     return;
   }
-  markAutoReplied(from);
-  res.send(autoReplyTwiml(blockEndLabel()));
+  markAutoReplied(block.id, from);
+  res.send(autoReplyTwiml(student.name, blockEndLabel(student.id)));
 });
 
-async function safeForward(text: string): Promise<void> {
+async function safeForward(student: Student, text: string): Promise<void> {
   try {
-    await sendToStudent(text);
+    await sendToStudent(student, text);
   } catch (err) {
-    // Never let a forwarding failure break the webhook response.
     console.error("[sms] failed to forward to student:", err);
   }
 }

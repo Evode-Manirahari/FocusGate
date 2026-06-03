@@ -18,8 +18,13 @@ them with Claude, and only the urgent ones reach the student. Because the logic 
 the server, the same backend works on iOS and Android — no notification interception, which
 iOS forbids anyway.
 
-This repo is the **v1 relay backend**, scoped for the concierge test (see below) and the
-real Approach C build at the same time.
+This repo is the **v1 relay backend** plus a thin native client. The backend is scoped
+for the concierge test (see below) and the real Approach C build at the same time.
+
+- **Backend** (this directory) — Twilio relay + Claude triage + study blocks + dashboard.
+- **Native app** ([`app/`](./app)) — Expo client that receives the urgent message as an
+  iOS **Time Sensitive** push that breaks through Focus mode (the one thing web push and
+  the OS won't do). The backend falls back to SMS when the app isn't connected.
 
 ## How a message flows
 
@@ -75,6 +80,29 @@ threads, not a codebase:
 
 If yes → build out Approach A (native app, push, multi-student). If they won't route their
 texts or keep checking anyway → that's the real problem to solve, not the code.
+
+## Multiple students at once
+
+State is persisted in SQLite (`DB_PATH`), so blocks and held messages survive restarts,
+and you can run several concierge tests in parallel. Each student needs their **own**
+FocusGate number — inbound messages are routed to a student by the `To` number.
+
+```bash
+# register a student (or set STUDENT_* env to seed one on startup)
+curl -X POST localhost:3000/students -H 'content-type: application/json' \
+  -d '{"name":"Sam","phone":"+1555...","focusgateNumber":"+1900..."}'
+```
+
+| endpoint | what |
+| --- | --- |
+| `GET /students` | list registered students |
+| `POST /students` | register `{ name, phone, focusgateNumber }` |
+| `POST /students/:id/push-token` | register an Expo push token (native client) |
+| `POST /blocks/:id/start` | start a study block `{ durationMinutes? }` |
+| `POST /blocks/:id/stop` | end block, send the held-message digest |
+| `POST /sms/inbound` | Twilio webhook (routes by `To` number) |
+
+The operator dashboard shows one section per student.
 
 ## Commands
 
