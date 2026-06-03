@@ -16,6 +16,8 @@ export const config = {
   isProd,
   port: Number(process.env.PORT ?? 3000),
 
+  dbPath: optional("DB_PATH", "focusgate.db"),
+
   anthropicApiKey: optional("ANTHROPIC_API_KEY"),
   triageModel: optional("TRIAGE_MODEL", "claude-haiku-4-5-20251001"),
 
